@@ -7,27 +7,22 @@ using UnityEngine;
 public class RpiTcpClient : MonoBehaviour
 {
     [Header("Raspberry Pi Settings")]
-    public string serverIp = "192.168.50.251"; // 確認 IP
+    public string serverIp = "192.168.50.251"; // 確認這跟 Server 端 IP 一樣
     public int serverPort = 5005;
 
     [Header("Animation Settings")]
     public Animator dogAnimator;
-    public string breathParameterName = "BreathBlend";
-    public float smoothSpeed = 2.0f;
-
-    [Header("Motion Time Settings")]
-    [Range(0f, 1f)]
-    public float inhaleValue = 0.5f; 
-    
-    [Range(0f, 1f)]
-    public float exhaleValue = 0.0f; 
+    public string breathParameterName = "BreathBlend"; // 確認 Animator 參數名稱
+    public float smoothSpeed = 5.0f; // 數值越大，反應越快
 
     private TcpClient client;
     private NetworkStream stream;
     private Thread receiveThread;
     private bool isConnected = false;
+    private bool shouldReconnect = false;
 
-    private float targetBreathVal = 0.0f;
+    // 動畫目標值：0 = 吐氣 (Exhale), 1 = 吸氣 (Inhale)
+    private float targetBreathVal = 0.0f; 
     private float currentBreathVal = 0.0f;
 
     void Start()
@@ -37,38 +32,22 @@ public class RpiTcpClient : MonoBehaviour
 
     void Update()
     {
-        // --- [修改] 多模式按鍵控制 ---
-        
-        // 按 'A' -> 執行 Fix Version
+        // 按 'A' -> 告訴 RPi 執行邏輯
         if (Input.GetKeyDown(KeyCode.A))
         {
-            Debug.Log("[INPUT] Key 'A' pressed. Running FIX version.");
+            Debug.Log("[INPUT] Starting Logic (A)");
             SendCommand("RUN:FIX\n");
         }
 
-        // 按 'S' -> 執行 Demo Version (一般引導)
-        if (Input.GetKeyDown(KeyCode.S))
-        {
-            Debug.Log("[INPUT] Key 'S' pressed. Running DEMO version.");
-            SendCommand("RUN:DEMO\n");
-        }
-
-        // 按 'D' -> 執行 Demo with Mirror (鏡像+引導)
-        if (Input.GetKeyDown(KeyCode.D))
-        {
-            Debug.Log("[INPUT] Key 'D' pressed. Running MIRROR version.");
-            SendCommand("RUN:MIRROR\n");
-        }
-
-        // 按 'X' -> 全部停止
+        // 按 'X' -> 停止
         if (Input.GetKeyDown(KeyCode.X))
         {
-            Debug.Log("[INPUT] Key 'X' pressed. STOPPING.");
+            Debug.Log("[INPUT] Stopping (X)");
             SendCommand("STOP\n");
+            targetBreathVal = 0.0f; // 歸零
         }
-        // ---------------------------
 
-        // 動畫平滑運算
+        // 動畫平滑過渡
         currentBreathVal = Mathf.Lerp(currentBreathVal, targetBreathVal, Time.deltaTime * smoothSpeed);
 
         if (dogAnimator != null)
@@ -106,16 +85,15 @@ public class RpiTcpClient : MonoBehaviour
     public void SendCommand(string cmd)
     {
         if (!isConnected || stream == null) return;
-
         try
         {
             byte[] data = Encoding.UTF8.GetBytes(cmd);
             stream.Write(data, 0, data.Length);
-            stream.Flush();
         }
         catch (Exception e)
         {
-            Debug.LogError("[CLIENT] Send error: " + e.Message);
+            Debug.LogError("Send Error: " + e.Message);
+            isConnected = false;
         }
     }
 
@@ -137,22 +115,20 @@ public class RpiTcpClient : MonoBehaviour
                     foreach (string line in lines)
                     {
                         string cleanLine = line.Trim();
-                        if (string.IsNullOrEmpty(cleanLine)) continue;
-                        
-                        if (cleanLine == "ANIM:INHALE")
+                        // 處理 RPi 傳來的訊號
+                        if (cleanLine.Contains("ANIM:INHALE"))
                         {
-                            targetBreathVal = inhaleValue;
+                            targetBreathVal = 1.0f; // 推桿伸出 -> 吸氣動畫
                         }
-                        else if (cleanLine == "ANIM:EXHALE")
+                        else if (cleanLine.Contains("ANIM:EXHALE"))
                         {
-                            targetBreathVal = exhaleValue;
+                            targetBreathVal = 0.0f; // 推桿縮回 -> 吐氣動畫
                         }
                     }
                 }
             }
         }
-        catch (Exception) { }
-        finally
+        catch (Exception)
         {
             isConnected = false;
         }
@@ -160,13 +136,8 @@ public class RpiTcpClient : MonoBehaviour
 
     private void CloseConnection()
     {
-        try
-        {
-            isConnected = false;
-            if (receiveThread != null) receiveThread.Abort();
-            if (stream != null) stream.Close();
-            if (client != null) client.Close();
-        }
-        catch (Exception) { }
+        isConnected = false;
+        if (receiveThread != null) receiveThread.Abort();
+        if (client != null) client.Close();
     }
 }
