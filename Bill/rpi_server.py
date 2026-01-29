@@ -1,60 +1,83 @@
+# 修改版
 import socket
 import threading
-import subprocess
-import os
-import signal
+import time
 from self_check import run_self_check
 
-HOST = "172.20.10.4"
+# [關鍵] 匯入修改後的 fix_version
+import fix_version 
+
+HOST = "0.0.0.0" # 建議改為 0.0.0.0 讓所有 IP 都能連
 PORT = 5005
 
-breathm_process = None
+# 用來控制執行緒
+breath_thread = None
+stop_event = threading.Event()
+active_connection = None # 儲存當前的連線以便回傳資料
+
+def send_to_unity(message):
+    """這就是我們會傳進 fix_version 的 callback"""
+    global active_connection
+    if active_connection:
+        try:
+            active_connection.sendall(message.encode("utf-8"))
+        except Exception as e:
+            print(f"Send Error: {e}")
 
 def handle_command(cmd: str):
-    global breathm_process
+    global breath_thread, stop_event
 
     cmd = cmd.strip()
     print(f"[SERVER] Received command: {cmd}")
 
     if cmd == "ACTIVATE":
-        if breathm_process is None or breathm_process.poll() is not None:
-            breathm_process = subprocess.Popen(["python3", "demo_version.py"])
+        if breath_thread is None or not breath_thread.is_alive():
+            stop_event.clear()
+            # [關鍵] 啟動執行緒，並傳入 callback
+            breath_thread = threading.Thread(
+                target=fix_version.main, 
+                kwargs={'stop_event': stop_event, 'msg_callback': send_to_unity},
+                daemon=True
+            )
+            breath_thread.start()
             return "OK: ACTIVATE\n"
         else:
-            return "INFO: demo_version.py already running\n"
+            return "INFO: Already running\n"
 
     elif cmd == "DEACTIVATE":
-        if breathm_process is not None and breathm_process.poll() is None:
-            os.kill(breathm_process.pid, signal.SIGTERM)
-            breathm_process = None
+        if breath_thread and breath_thread.is_alive():
+            stop_event.set() # 通知執行緒停止
+            breath_thread.join(timeout=2.0)
             return "OK: DEACTIVATE\n"
         else:
-            return "INFO: demo_version.py is NOT running\n"
+            return "INFO: Not running\n"
     else:
-        return "ERROR: UNKNOWN_COMMAND\n"
-
+        return "ERROR: UNKNOWN\n"
 
 def client_thread(conn, addr):
+    global active_connection
     print(f"[SERVER] New connection from {addr}")
+    active_connection = conn # 綁定連線
+
     with conn:
         buffer = b""
         while True:
-            data = conn.recv(1024)
-            if not data:
-                print(f"[SERVER] Client {addr} disconnected")
+            try:
+                data = conn.recv(1024)
+                if not data: break
+                buffer += data
+                while b"\n" in buffer:
+                    line, buffer = buffer.split(b"\n", 1)
+                    response = handle_command(line.decode("utf-8"))
+                    conn.sendall(response.encode("utf-8"))
+            except ConnectionResetError:
                 break
-            buffer += data
-            while b"\n" in buffer:
-                line, buffer = buffer.split(b"\n", 1)
-                response = handle_command(line.decode("utf-8"))
-                conn.sendall(response.encode("utf-8"))
-
+    
+    print(f"[SERVER] Client {addr} disconnected")
+    active_connection = None
 
 def main():
-    if not run_self_check():
-        print("[SERVER] Self-check fails. System terminates")
-        return
-
+    if not run_self_check(): return
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind((HOST, PORT))
@@ -64,7 +87,6 @@ def main():
             conn, addr = s.accept()
             t = threading.Thread(target=client_thread, args=(conn, addr), daemon=True)
             t.start()
-
 
 if __name__ == "__main__":
     main()

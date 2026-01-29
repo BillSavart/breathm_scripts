@@ -10,67 +10,34 @@ public class RpiTcpClient : MonoBehaviour
     public string serverIp = "172.20.10.4"; 
     public int serverPort = 5005;
 
+    [Header("Animation Settings")]
+    public Animator dogAnimator;
+    public string breathParameterName = "BreathBlend"; // 對應 Animator 的參數名
+    public float smoothSpeed = 2.0f; // 數值越大，切換越快
+
     private TcpClient client;
     private NetworkStream stream;
     private Thread receiveThread;
     private bool isConnected = false;
 
-    void Start()
-    {
+    // 用於主執行緒讀取的目標值
+    private float targetBreathVal = 0.0f; // 0 = 吐氣, 1 = 吸氣
+    private float currentBreathVal = 0.0f;
+
+    void Start() {
         ConnectToServer();
     }
 
-    void OnApplicationQuit()
-    {
-        CloseConnection();
-    }
-
-    public void OnActivateButtonClicked()
-    {
-        SendCommand("ACTIVATE\n");
-    }
-
-    public void OnDeactivateButtonClicked()
-    {
-        SendCommand("DEACTIVATE\n");
-    }
-
-    public void ConnectToServer()
-    {
-        try
-        {
-            client = new TcpClient();
-            client.Connect(serverIp, serverPort);
-            stream = client.GetStream();
-            isConnected = true;
-            Debug.Log("[CLIENT] Connected to Raspberry Pi");
-
-            receiveThread = new Thread(ReceiveLoop);
-            receiveThread.IsBackground = true;
-            receiveThread.Start();
-        }
-        catch (Exception e)
-        {
-            Debug.LogError("[CLIENT] Connection error: " + e.Message);
+    void Update() {
+        // [關鍵] 在 Update 中平滑插值，讓動畫不生硬
+        currentBreathVal = Mathf.Lerp(currentBreathVal, targetBreathVal, Time.deltaTime * smoothSpeed);
+        
+        if(dogAnimator != null) {
+            dogAnimator.SetFloat(breathParameterName, currentBreathVal);
         }
     }
 
-    public void SendCommand(string cmd)
-    {
-        if (!isConnected || stream == null) return;
-
-        try
-        {
-            byte[] data = Encoding.UTF8.GetBytes(cmd);
-            stream.Write(data, 0, data.Length);
-            stream.Flush();
-            Debug.Log("[CLIENT] Sent: " + cmd.Trim());
-        }
-        catch (Exception e)
-        {
-            Debug.LogError("[CLIENT] Send error: " + e.Message);
-        }
-    }
+    // ... (ConnectToServer, SendCommand, OnApplicationQuit 保持不變) ...
 
     private void ReceiveLoop()
     {
@@ -80,35 +47,32 @@ public class RpiTcpClient : MonoBehaviour
             while (isConnected)
             {
                 int bytesRead = stream.Read(buffer, 0, buffer.Length);
-                if (bytesRead <= 0)
-                {
-                    Debug.Log("[CLIENT] Server disconnected");
-                    break;
-                }
+                if (bytesRead <= 0) break;
+
                 string msg = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-                Debug.Log("[CLIENT] Received: " + msg.Trim());
+                string[] lines = msg.Split('\n'); // 處理多行指令
+
+                foreach (string line in lines) {
+                    string cleanLine = line.Trim();
+                    if (string.IsNullOrEmpty(cleanLine)) continue;
+
+                    Debug.Log("[CLIENT] Received: " + cleanLine);
+
+                    // [關鍵] 解析指令
+                    if (cleanLine == "ANIM:INHALE") {
+                        targetBreathVal = 1.0f; // 設定目標為吸氣
+                    }
+                    else if (cleanLine == "ANIM:EXHALE") {
+                        targetBreathVal = 0.0f; // 設定目標為吐氣
+                    }
+                }
             }
         }
-        catch (Exception e)
-        {
+        catch (Exception e) {
             Debug.LogError("[CLIENT] Receive error: " + e.Message);
         }
-        finally
-        {
+        finally {
             isConnected = false;
         }
-    }
-
-    private void CloseConnection()
-    {
-        try
-        {
-            isConnected = false;
-            if (receiveThread != null && receiveThread.IsAlive)
-                receiveThread.Abort();
-            if (stream != null) stream.Close();
-            if (client != null) client.Close();
-        }
-        catch (Exception) { }
     }
 }
