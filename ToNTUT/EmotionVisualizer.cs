@@ -12,12 +12,22 @@ public class EmotionVisualizer : MonoBehaviour
 
     void Start()
     {
+        /// <summary>
+        /// 初始化 EmotionVisualizer 組件。
+        /// 如果未指定 detector 或 manager，自動查找場景中的實例。
+        /// </summary>
         if (detector == null) detector = FindObjectOfType<EmotionDetector>();
         if (manager == null) manager = FindObjectOfType<EmotionManager>();
     }
 
     void Update()
     {
+        /// <summary>
+        /// 每幀更新 UI 顯示。
+        /// 檢查必要的組件是否存在，如果不存在則返回。
+        /// 如果當前情緒為校正狀態，顯示校正提示。
+        /// 否則，根據當前情緒設置顏色，並顯示情緒名稱和分數。
+        /// </summary>
         if (monitorText == null || detector == null || manager == null)
             return;
 

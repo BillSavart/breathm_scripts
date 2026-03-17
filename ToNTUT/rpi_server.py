@@ -17,8 +17,18 @@ SCRIPT_PATH = os.path.join(CURRENT_DIR, "fix_version.py")
 
 def monitor_process_output(proc, conn):
     """
-    持續讀取子程序的 stdout (包含 stderr)，如果有包含 SYNC_ 的關鍵字，
-    就透過 socket 傳送給 Unity。
+    持續監視子程序的輸出（包括 stdout 和 stderr），並將包含 'SYNC_' 關鍵字的行通過 socket 發送給 Unity 客戶端。
+    
+    參數:
+    - proc: 子程序對象（subprocess.Popen 實例），用於讀取其輸出。
+    - conn: socket 連接對象，用於向客戶端發送數據。
+    
+    行為:
+    - 使用迭代器逐行讀取 proc.stdout。
+    - 每行輸出都會被印出到伺服器控制台（用於調試）。
+    - 如果行包含 'SYNC_'，則將該行（加上換行符）編碼為 UTF-8 並發送給 conn。
+    - 如果發送失敗，記錄錯誤並中斷監視。
+    - 當子程序結束時，退出循環並記錄結束訊息。
     """
     try:
         # 逐行讀取輸出

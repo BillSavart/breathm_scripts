@@ -51,20 +51,71 @@ fail_threshold = 50
 warmup_duration = 5.0
 mirror_duration = 60.0
 
-# --- Filter Class ---
 class RealTimeFilter:
+    """
+    實時低通濾波器類別，用於平滑壓力感測器數據，減少噪聲。
+    
+    屬性:
+    - b, a: 濾波器係數，由 butter 函數生成。
+    - zi: 初始狀態向量，用於維持濾波器狀態。
+    """
     def __init__(self, order, cutoff, fs, initial_value=0.0):
+        """
+        初始化濾波器。
+        
+        參數:
+        - order: 濾波器階數（整數）。
+        - cutoff: 截止頻率（Hz）。
+        - fs: 採樣頻率（Hz）。
+        - initial_value: 初始值，用於設置 zi。
+        
+        行為:
+        - 計算正規化截止頻率。
+        - 使用 scipy.signal.butter 生成濾波器係數。
+        - 初始化 zi 為初始值的狀態。
+        """
         nyquist = 0.5 * fs
         normal_cutoff = cutoff / nyquist
         self.b, self.a = butter(order, normal_cutoff, btype='low', analog=False)
         self.zi = lfilter_zi(self.b, self.a) * initial_value
     
     def process(self, value):
+        """
+        處理單個輸入值，返回濾波後的值。
+        
+        參數:
+        - value: 輸入的原始壓力值（浮點數）。
+        
+        返回: 濾波後的值（浮點數）。
+        
+        行為:
+        - 使用 lfilter 應用濾波器，更新 zi 狀態。
+        - 返回濾波結果的第一個元素。
+        """
         filtered_value, self.zi = lfilter(self.b, self.a, [value], zi=self.zi)
         return filtered_value[0]
 
 # --- Helper Functions ---
 def validate_stable(breath_times, target_breath_time):
+    """
+    評估用戶呼吸的穩定性，決定是否成功或失敗，並調整目標呼吸時間。
+    
+    參數:
+    - breath_times: 用戶最近呼吸時間的列表（秒）。
+    - target_breath_time: 當前目標呼吸週期（秒）。
+    
+    返回: (EvalState, 新目標時間)
+    - EvalState.NONE: 數據不足或未達閾值。
+    - EvalState.SUCCESS: 穩定，增加目標時間。
+    - EvalState.FAIL: 不穩定，調整為平均時間。
+    
+    行為:
+    - 如果列表長度小於 sampling_window，返回 NONE 和當前目標。
+    - 計算每個呼吸時間與目標的偏差百分比。
+    - 如果所有偏差在 success_threshold（15%）內，返回 SUCCESS 和增加的目標。
+    - 如果任何偏差超過 fail_threshold（50%），返回 FAIL 和平均時間。
+    - 否則返回 NONE 和當前目標。
+    """
     if len(breath_times) < sampling_window:
         return EvalState.NONE, target_breath_time
 
@@ -115,6 +166,24 @@ def guide_breathing_logic(timer, target, pos):
 
 # --- Main Logic ---
 def main():
+    """
+    呼吸控制系統的主函數，實現暖機、鏡像和引導階段。
+    
+    行為:
+    - 印出啟動訊息。
+    - 初始化 GPIO 和 PWM 控制馬達。
+    - 初始化 BMP280 感測器，讀取初始壓力值。
+    - 初始化濾波器、狀態變數和計時器。
+    - 進入主循環：
+      - 讀取和濾波壓力數據。
+      - 檢測用戶呼吸動作（吸氣/吐氣）。
+      - 根據機器狀態處理：
+        - WARMUP: 等待暖機時間，記錄用戶動作。
+        - MIRROR: 記錄用戶呼吸時間，計算平均目標。
+        - GUIDE: 控制馬達引導呼吸，評估穩定性，發送 SYNC_PROGRESS。
+      - 控制循環時間以維持採樣率。
+    - 處理中斷和異常，清理 GPIO。
+    """
     print(">>> 呼吸控制系統啟動 (0.3~0.7 範圍控制模式)...", flush=True)
     
     # GPIO 初始化

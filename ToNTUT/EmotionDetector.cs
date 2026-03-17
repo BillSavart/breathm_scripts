@@ -63,12 +63,28 @@ public class EmotionDetector : MonoBehaviour
 
     void Start()
     {
+        /// <summary>
+        /// 初始化 EmotionDetector 組件。
+        /// 設置管理器的當前情緒為校正狀態，並重置校正數據。
+        /// </summary>
         if (manager != null) manager.currentEmotion = EmotionManager.EmotionState.Calibrating;
         ResetCalibration();
     }
 
     void Update()
     {
+        /// <summary>
+        /// 每幀更新情緒檢測邏輯。
+        /// 檢查必要的組件是否存在，如果不存在則返回。
+        /// 讀取並平滑原始面部表情數據。
+        /// 如果尚未校正，執行校正過程。
+        /// 應用基準線調整。
+        /// 檢查眨眼抑制，如果眨眼超過閾值，保持穩定情緒。
+        /// 計算活動量，如果低於閾值，設置為中性並更新動態基準線。
+        /// 檢查講話抑制，判斷是否可能在說話。
+        /// 計算情緒分數。
+        /// 應用遲滯穩定機制。
+        /// </summary>
         if (AvatarFace == null || manager == null) return;
 
         ReadAndSmoothRaw();
@@ -117,6 +133,12 @@ public class EmotionDetector : MonoBehaviour
     // --------------------------------------------------
     void ReadAndSmoothRaw()
     {
+        /// <summary>
+        /// 讀取原始面部表情權重並應用指數移動平均 (EMA) 平滑。
+        /// 從 OVRFaceExpressions 獲取各種面部表情的權重值，包括微笑、臉頰、皺眉等。
+        /// 對每個表情應用 EMA 平滑，以減少噪聲和抖動。
+        /// 平滑係數由 smoothing 參數控制。
+        /// </summary>
         float raw_smile =
             (AvatarFace.GetWeight(OVRFaceExpressions.FaceExpression.LipCornerPullerL) +
              AvatarFace.GetWeight(OVRFaceExpressions.FaceExpression.LipCornerPullerR)) * 0.5f;
@@ -176,6 +198,12 @@ public class EmotionDetector : MonoBehaviour
     // --------------------------------------------------
     void Calibrate()
     {
+        /// <summary>
+        /// 執行面部表情校正過程。
+        /// 在校正期間，累積平滑後的面部表情權重值。
+        /// 當校正時間達到 calibrationDuration 時，計算平均基準線值。
+        /// 設置 isCalibrated 為 true，並將情緒設置為 Neutral。
+        /// </summary>
         calibrationTimer += Time.deltaTime;
 
         zero_smile += s_smile;
@@ -216,6 +244,10 @@ public class EmotionDetector : MonoBehaviour
 
     void ResetCalibration()
     {
+        /// <summary>
+        /// 重置校正數據。
+        /// 將校正計時器、幀數計數器重置為 0，並設置 isCalibrated 為 false。
+        /// </summary>
         calibrationTimer = 0;
         calibrationFrameCount = 0;
         isCalibrated = false;
@@ -224,6 +256,11 @@ public class EmotionDetector : MonoBehaviour
     // --------------------------------------------------
     void ApplyBaseline()
     {
+        /// <summary>
+        /// 應用基準線調整到平滑後的面部表情數據。
+        /// 從平滑值中減去基準線值，應用靈敏度倍數，並確保結果不小於 0。
+        /// 對於 lid_tightener，額外減去眼閉合的影響以避免眨眼干擾。
+        /// </summary>
         smile = Mathf.Max(0, (s_smile - zero_smile) * sensitivity);
         cheek = Mathf.Max(0, (s_cheek - zero_cheek) * sensitivity);
         frown = Mathf.Max(0, (s_frown - zero_frown) * sensitivity);
@@ -245,6 +282,12 @@ public class EmotionDetector : MonoBehaviour
     // ★ V5：加權平均分數版 (Score Based, Higher is Better)
     void CalculateEmotionV4(bool isLikelyTalking)
     {
+        /// <summary>
+        /// 計算各情緒的分數，使用加權平均方法。
+        /// 根據面部表情特徵計算 Happy、Sad、Angry、Surprise 的分數。
+        /// 應用各種抑制和扣分邏輯以提高準確性。
+        /// </summary>
+        /// <param name="isLikelyTalking">是否可能在說話，用於抑制 Sad 和 Surprise。</param>
         // 常用組合
         float eyeSurprise = Mathf.Max(upper_lid, outer_brow, inner_brow); // 眉眼張開
         float crySignal = Mathf.Max(frown, inner_brow);                   // 哭/委屈
@@ -312,6 +355,13 @@ public class EmotionDetector : MonoBehaviour
     // 若 Value < Threshold，該項視為 0 (或不計分? 這裡採視為0降低平均)
     float GetScore(params (float val, float weight, float threshold)[] fs)
     {
+        /// <summary>
+        /// 計算加權平均分數。
+        /// 對於每個 (值, 權重, 閾值) 元組，如果值低於閾值，則貢獻為 0。
+        /// 返回 0 到 1 之間的平均分數。
+        /// </summary>
+        /// <param name="fs">參數數組，每個元素包含值、權重和閾值。</param>
+        /// <returns>加權平均分數，範圍 0 到 1。</returns>
         float totalScore = 0f;
         float totalWeight = 0f;
 
@@ -335,6 +385,15 @@ public class EmotionDetector : MonoBehaviour
     // --------------------------------------------------
     void ApplyHysteresis()
     {
+        /// <summary>
+        /// 應用遲滯穩定機制以避免情緒快速切換。
+        /// 減少冷卻時間。
+        /// 找到最高分數的情緒。
+        /// 如果在冷卻期間，保持穩定情緒。
+        /// 如果分數太低，設置為 Neutral。
+        /// 如果候選情緒持續足夠幀數，切換到穩定情緒並設置冷卻。
+        /// 更新管理器的當前情緒。
+        /// </summary>
         if (cooldown > 0) cooldown--;
 
         // 找最高分
@@ -382,6 +441,11 @@ public class EmotionDetector : MonoBehaviour
     // --------------------------------------------------
     void UpdateDynamicBaseline()
     {
+        /// <summary>
+        /// 更新動態基準線以適應長期漂移。
+        /// 使用低速率插值將基準線向當前平滑值靠近。
+        /// 適用於所有面部表情特徵。
+        /// </summary>
         float rate = 0.002f;
         zero_smile = Mathf.Lerp(zero_smile, s_smile, rate);
         zero_cheek = Mathf.Lerp(zero_cheek, s_cheek, rate);
