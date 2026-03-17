@@ -13,7 +13,7 @@ breathm_process = None
 
 # 1. 取得絕對路徑，確保不管在哪執行都能找到 fix_version.py
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-SCRIPT_PATH = os.path.join(CURRENT_DIR, "demo_version.py")
+SCRIPT_PATH = os.path.join(CURRENT_DIR, "fix_version.py")
 
 def monitor_process_output(proc, conn):
     """

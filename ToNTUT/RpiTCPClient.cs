@@ -3,6 +3,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using UnityEngine;
+using Oculus.VR;
 
 public class RpiTcpClient : MonoBehaviour
 {
@@ -14,10 +15,28 @@ public class RpiTcpClient : MonoBehaviour
     private NetworkStream stream;
     private Thread receiveThread;
     private bool isConnected = false;
+    private bool isActivated = false;
 
     void Start()
     {
         ConnectToServer();
+    }
+
+    void Update()
+    {
+        if (OVRInput.GetDown(OVRInput.Button.Two))
+        {
+            if (isActivated)
+            {
+                OnDeactivateButtonClicked();
+                isActivated = false;
+            }
+            else
+            {
+                OnActivateButtonClicked();
+                isActivated = true;
+            }
+        }
     }
 
     void OnApplicationQuit()
