@@ -3,6 +3,7 @@
 
 import sys
 import time
+import signal
 import numpy as np
 from enum import Enum
 from scipy.signal import butter, lfilter, lfilter_zi
@@ -50,6 +51,13 @@ fail_threshold = 50
 
 warmup_duration = 5.0
 mirror_duration = 60.0
+shutdown_requested = False
+
+
+def request_shutdown(signum, frame):
+    global shutdown_requested
+    shutdown_requested = True
+    print(f"\n>>> 收到停止訊號 ({signum})，準備安全關閉...", flush=True)
 
 class RealTimeFilter:
     """
@@ -166,6 +174,8 @@ def guide_breathing_logic(timer, target, pos):
 
 # --- Main Logic ---
 def main():
+    global shutdown_requested
+
     """
     呼吸控制系統的主函數，實現暖機、鏡像和引導階段。
     
@@ -185,6 +195,8 @@ def main():
     - 處理中斷和異常，清理 GPIO。
     """
     print(">>> 呼吸控制系統啟動 (0.3~0.7 範圍控制模式)...", flush=True)
+    signal.signal(signal.SIGTERM, request_shutdown)
+    signal.signal(signal.SIGINT, request_shutdown)
     
     # GPIO 初始化
     GPIO.setmode(GPIO.BCM)
@@ -206,6 +218,9 @@ def main():
         print(">>> 感測器連接成功", flush=True)
     except Exception as e:
         print(f"!!! Sensor Error: {e}", flush=True)
+        move_linear_actuator(0)
+        p.stop()
+        GPIO.cleanup()
         return
 
     # 變數初始化
@@ -231,7 +246,7 @@ def main():
     print(f">>> 系統暖機中 ({warmup_duration}秒)...", flush=True)
 
     try:
-        while running:
+        while running and not shutdown_requested:
             loop_start = time.time()
             
             # 讀取與濾波
@@ -349,6 +364,7 @@ def main():
         print(f"\n!!! Runtime Error: {e}", flush=True)
     finally:
         print(">>> 清理 GPIO...", flush=True)
+        move_linear_actuator(0)
         p.stop()
         GPIO.cleanup()
         print(">>> 程式結束", flush=True)
